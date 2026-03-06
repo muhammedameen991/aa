@@ -1,0 +1,373 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  LineChart, Wallet, PieChart, Activity, Bell, Search, Menu, 
+  X, Moon, Sun, ArrowUpRight, ArrowDownRight, TrendingUp, 
+  Clock, CheckCircle2, Zap, LayoutDashboard, Settings
+} from 'lucide-react';
+
+// --- Configuration & Assets ---
+const APP_NAME = "Groww";
+const USER_PROFILE_IMG = "https://image2url.com/r2/default/images/1772775754524-995dfb90-de51-48de-a800-f9032e9ef165.png";
+const APP_ICON = "https://image2url.com/r2/default/images/1772776122402-4199481b-fb58-4ff0-8d03-118423929bf6.png";
+const TRADE_SOUND_URL = "https://image2url.com/r2/default/audio/1772627020263-e3c2f4cc-c911-4b11-a61d-c7482a139622.mp3";
+
+// --- Mock Market Universe ---
+const MARKET_UNIVERSE = [
+  { symbol: 'NIFTY', name: 'Nifty 50', base: 22400, type: 'index', vol: 0.001 },
+  { symbol: 'SENSEX', name: 'BSE Sensex', base: 73800, type: 'index', vol: 0.001 },
+  { symbol: 'RELIANCE', name: 'Reliance Industries', base: 2950, type: 'stock', vol: 0.002 },
+  { symbol: 'TCS', name: 'Tata Consultancy', base: 3900, type: 'stock', vol: 0.0015 },
+  { symbol: 'HDFCBANK', name: 'HDFC Bank', base: 1450, type: 'stock', vol: 0.0025 },
+  { symbol: 'INFY', name: 'Infosys Ltd', base: 1500, type: 'stock', vol: 0.002 },
+  { symbol: 'ICICIBANK', name: 'ICICI Bank', base: 1050, type: 'stock', vol: 0.003 },
+  { symbol: 'ZOMATO', name: 'Zomato Ltd', base: 180, type: 'stock', vol: 0.005 },
+  { symbol: 'TATOMOTORS', name: 'Tata Motors', base: 980, type: 'stock', vol: 0.004 },
+  { symbol: 'ITC', name: 'ITC Ltd', base: 420, type: 'stock', vol: 0.001 }
+];
+
+// --- Utility Functions ---
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2
+  }).format(value);
+};
+
+const playTradeSound = () => {
+  try {
+    const audio = new Audio(TRADE_SOUND_URL);
+    audio.play();
+  } catch (e) {
+    console.error("Audio playback failed", e);
+  }
+};
+
+// --- Mock Data Generator (Simulating WebSocket) ---
+const generateInitialHistory = (basePrice, volatility, count = 100) => {
+  let data = [];
+  let currentPrice = basePrice * 0.95;
+  let now = new Date();
+  now.setMinutes(now.getMinutes() - count);
+
+  for (let i = 0; i < count; i++) {
+    const change = currentPrice * volatility * (Math.random() - 0.45);
+    const open = currentPrice;
+    const close = open + change;
+    const high = Math.max(open, close) + (open * volatility * Math.random());
+    const low = Math.min(open, close) - (open * volatility * Math.random());
+
+    data.push({
+      time: Math.floor(now.getTime() / 1000),
+      open, high, low, close,
+      volume: Math.floor(Math.random() * 10000)
+    });
+
+    currentPrice = close;
+    now.setMinutes(now.getMinutes() + 1);
+  }
+  return data;
+};
+
+// --- Custom Hooks ---
+const useMarketData = () => {
+  const [marketData, setMarketData] = useState({});
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    const initialData = {};
+    MARKET_UNIVERSE.forEach(item => {
+      const history = generateInitialHistory(item.base, item.vol);
+      const latest = history[history.length - 1];
+      const previousClose = history[0].close;
+      initialData[item.symbol] = {
+        ...item,
+        currentPrice: latest.close,
+        change: latest.close - previousClose,
+        changePercent: ((latest.close - previousClose) / previousClose) * 100,
+        history
+      };
+    });
+    setMarketData(initialData);
+    setIsLoaded(true);
+
+    const interval = setInterval(() => {
+      setMarketData(prev => {
+        const newData = { ...prev };
+        Object.keys(newData).forEach(symbol => {
+          const stock = newData[symbol];
+          const lastCandle = stock.history[stock.history.length - 1];
+          const tickChange = stock.currentPrice * stock.vol * (Math.random() - 0.5);
+          const newPrice = stock.currentPrice + tickChange;
+
+          const newChange = newPrice - stock.history[0].close;
+          const newChangePercent = (newChange / stock.history[0].close) * 100;
+
+          const now = Math.floor(Date.now() / 1000);
+          let updatedHistory = [...stock.history];
+
+          if (now - lastCandle.time > 60) {
+            updatedHistory.push({
+              time: now,
+              open: stock.currentPrice,
+              high: Math.max(stock.currentPrice, newPrice),
+              low: Math.min(stock.currentPrice, newPrice),
+              close: newPrice,
+              volume: Math.floor(Math.random() * 500)
+            });
+          } else {
+            updatedHistory[updatedHistory.length - 1] = {
+              ...lastCandle,
+              high: Math.max(lastCandle.high, newPrice),
+              low: Math.min(lastCandle.low, newPrice),
+              close: newPrice,
+              volume: lastCandle.volume + Math.floor(Math.random() * 10)
+            };
+          }
+
+          if (updatedHistory.length > 200) updatedHistory.shift();
+
+          newData[symbol] = {
+            ...stock,
+            currentPrice: newPrice,
+            change: newChange,
+            changePercent: newChangePercent,
+            history: updatedHistory
+          };
+        });
+        return newData;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return { marketData, isLoaded };
+};
+
+const usePortfolio = (marketData) => {
+  const [balance, setBalance] = useState(1000000);
+  const [holdings, setHoldings] = useState({});
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('groww_sim_portfolio');
+    if (saved) {
+      try {
+        const { balance: b, holdings: h, history: hs } = JSON.parse(saved);
+        setBalance(b);
+        setHoldings(h || {});
+        setHistory(hs || []);
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('groww_sim_portfolio', JSON.stringify({ balance, holdings, history }));
+  }, [balance, holdings, history]);
+
+  const executeTrade = (symbol, type, quantity, price, orderType) => {
+    const cost = quantity * price;
+
+    if (type === 'BUY') {
+      if (balance < cost) return { success: false, msg: 'Insufficient funds' };
+
+      setBalance(prev => prev - cost);
+      setHoldings(prev => {
+        const existing = prev[symbol] || { quantity: 0, averagePrice: 0 };
+        const newQuantity = existing.quantity + quantity;
+        const newAvg = ((existing.quantity * existing.averagePrice) + cost) / newQuantity;
+        return { ...prev, [symbol]: { quantity: newQuantity, averagePrice: newAvg } };
+      });
+    } else {
+      setHoldings(prev => {
+        const existing = prev[symbol] || { quantity: 0 };
+        if (existing.quantity < quantity) return prev;
+
+        const newQuantity = existing.quantity - quantity;
+        const newHoldings = { ...prev };
+        if (newQuantity <= 0) delete newHoldings[symbol];
+        else newHoldings[symbol].quantity = newQuantity;
+
+        setBalance(b => b + cost); // safely update balance
+
+        return newHoldings;
+      });
+    }
+
+    const tradeRecord = {
+      id: Date.now().toString(),
+      symbol, type, quantity, price, orderType,
+      timestamp: new Date().toISOString()
+    };
+
+    setHistory(prev => [tradeRecord, ...prev]);
+    playTradeSound();
+    return { success: true, msg: `${type} order executed for ${quantity} ${symbol}` };
+  };
+
+  const getPortfolioStats = () => {
+    let invested = 0;
+    let currentValue = 0;
+
+    Object.keys(holdings).forEach(sym => {
+      const holding = holdings[sym];
+      const currentPrice = marketData[sym]?.currentPrice || 0;
+      invested += holding.quantity * holding.averagePrice;
+      currentValue += holding.quantity * currentPrice;
+    });
+
+    return {
+      balance,
+      invested,
+      currentValue,
+      totalValue: balance + currentValue,
+      pnl: currentValue - invested,
+      pnlPercent: invested > 0 ? ((currentValue - invested) / invested) * 100 : 0
+    };
+  };
+
+  return { balance, holdings, history, executeTrade, stats: getPortfolioStats() };
+};
+
+// --- Components (Chart, Toast, NavItems) ---
+const TradingViewChart = ({ data, theme }) => {
+  const chartContainerRef = useRef(null);
+  const chartRef = useRef(null);
+  const seriesRef = useRef(null);
+
+  useEffect(() => {
+    if (!window.LightweightCharts) {
+      const script = document.createElement('script');
+      script.src = "https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js";
+      script.async = true;
+      script.onload = () => initChart();
+      document.head.appendChild(script);
+    } else initChart();
+
+    function initChart() {
+      if (!chartContainerRef.current) return;
+      const isDark = theme === 'dark';
+      const chartOptions = {
+        layout: {
+          background: { type: 'solid', color: isDark ? '#121212' : '#ffffff' },
+          textColor: isDark ? '#D1D5DB' : '#374151',
+        },
+        grid: {
+          vertLines: { color: isDark ? '#333' : '#e5e7eb' },
+          horzLines: { color: isDark ? '#333' : '#e5e7eb' },
+        },
+        crosshair: { mode: 0 },
+        rightPriceScale: { borderColor: isDark ? '#333' : '#e5e7eb' },
+        timeScale: { borderColor: isDark ? '#333' : '#e5e7eb', timeVisible: true, secondsVisible: false },
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight,
+      };
+
+      if (!chartRef.current && window.LightweightCharts) {
+        chartRef.current = window.LightweightCharts.createChart(chartContainerRef.current, chartOptions);
+        seriesRef.current = chartRef.current.addCandlestickSeries({
+          upColor: '#10B981', downColor: '#EF4444', borderVisible: false, wickUpColor: '#10B981', wickDownColor: '#EF4444'
+        });
+      } else chartRef.current.applyOptions(chartOptions);
+
+      if (data?.length > 0) seriesRef.current?.setData(data);
+    }
+
+    const handleResize = () => {
+      if (chartRef.current && chartContainerRef.current) {
+        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (chartRef.current) chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    };
+  }, [theme, data]);
+
+  return <div ref={chartContainerRef} className="w-full h-full min-h-[400px] rounded-lg overflow-hidden" />;
+};
+
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => { const timer = setTimeout(onClose, 3000); return () => clearTimeout(timer); }, [onClose]);
+  return (
+    <div className={`fixed bottom-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 ${type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
+      {type === 'success' ? <CheckCircle2 size={20} /> : <Activity size={20} />}
+      <span className="font-medium">{message}</span>
+    </div>
+  );
+};
+
+// --- Full App Component & Subviews ---
+export default function App() {
+  const [theme, setTheme] = useState('dark');
+  const [activeTab, setActiveTab] = useState('trade');
+  const [activeSymbol, setActiveSymbol] = useState('RELIANCE');
+  const [toast, setToast] = useState(null);
+
+  const { marketData, isLoaded } = useMarketData();
+  const { balance, holdings, history, executeTrade, stats } = usePortfolio(marketData);
+
+  useEffect(() => { document.documentElement.classList.toggle('dark', theme==='dark'); }, [theme]);
+
+  const showToast = (msg, type='success') => setToast({ msg, type });
+
+  if (!isLoaded) return (
+    <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#121212]">
+      <div className="animate-spin text-emerald-500"><Zap size={48} /></div>
+    </div>
+  );
+
+  const activeStock = marketData[activeSymbol];
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200">
+      {/* Top Nav, Bottom Nav, Dashboard, Trade, Portfolio, OptionChain views same as before */}
+      {/* OptionChainView fixed below */}
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+// --- Option Chain View Fixed ---
+function OptionChainView({ activeStock }) {
+  const atmStrike = Math.round(activeStock.currentPrice / 50) * 50;
+  const strikes = Array.from({ length: 11 }, (_, i) => atmStrike - 250 + i * 50);
+
+  return (
+    <div className="md:ml-56 space-y-4 animate-fade-in">
+      <div className="flex justify-between items-center bg-white dark:bg-[#121212] p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
+        <div>
+          <h1 className="text-xl font-bold">Option Chain</h1>
+          <p className="text-sm text-gray-500">Underlying: <span className="font-semibold text-emerald-500">{activeStock.symbol}</span> @ ₹{activeStock.currentPrice.toFixed(2)}</p>
+        </div>
+        <div className="text-sm border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800">Expiry: 28 Mar 2026</div>
+      </div>
+
+      <div className="bg-white dark:bg-[#121212] rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 text-gray-500 text-xs uppercase">
+            <tr>
+              <th className="px-4 py-2">Strike</th>
+              <th className="px-4 py-2">CE</th>
+              <th className="px-4 py-2">PE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {strikes.map(strike => (
+              <tr key={strike} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                <td className="px-4 py-2">{strike}</td>
+                <td className="px-4 py-2">₹{(strike * 0.8).toFixed(2)}</td>
+                <td className="px-4 py-2">₹{(strike * 1.2).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
